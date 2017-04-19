@@ -691,7 +691,7 @@ def check_if_int(int_from_user):
 
 
 # main
-debug = True
+debug = False
 ua = UserAgent()
 
 program_start_input = raw_input('Generate rules via API download(1) or live(2)(live mode is in testing)? \n')
