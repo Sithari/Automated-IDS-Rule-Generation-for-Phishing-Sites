@@ -1,5 +1,5 @@
 from BeautifulSoup import BeautifulSoup
-import urllib2 #for wget
+import urllib2
 import re
 import socket
 from urlparse import urlparse
@@ -9,107 +9,57 @@ import os.path
 from fake_useragent import UserAgent
 from time import sleep
 from sys import exit
-import sys
+import httplib
 import time
 
-# TODO make whitelist for domains?
 
-def getIds(ua):
-
+def get_api_file(user_api_key):
     global debug
     ids = list()
     opener = urllib2.build_opener()
-    opener.addheaders = [('User-agent', ua)]
+    opener.addheaders = [('User-agent', ua.random)]
+
+    if user_api_key:
+        url = 'http://data.phishtank.com/data/' + user_api_key + '/online-valid.csv'
+
+    else:
+        url = 'http://data.phishtank.com/data/online-valid.csv'
+
+    file_name = url.split('/')[-1]
+
     try:
-        #response = opener.open('https://www.phishtank.com/phish_search.php?page=1&active=y&valid=y&Search=Search')
-        response = opener.open('https://www.phishtank.com/phish_search.php?valid=y&active=y&Search=Search')
+        downloader = opener.open(url)
+        print "Downloading file.."
+        with open(file_name, "wb") as code:
+            code.write(downloader.read())
+
+        print "Download complete"
+        return file_name
+
     except urllib2.URLError:
         print("Error: Do you have internets?")
-        #TODO create a return to just wait
+        # TODO create a return to just wait
         exit(0)
-    #print("Response:" + response.read())
-
-    soup = BeautifulSoup(response)
-    prettyHTML=soup.prettify()  #prettify the html
-    soup2 = BeautifulSoup(prettyHTML)
-
-    try:
-        for table in soup2.findAll('table', attrs={'class': 'data'}):
-            for cell in table.findAll('td'):
-                #print cell
-
-                for id in cell.findAll('a'):
-                    if "phish_id" in str(id):
-                        #if debug:
-                        #print str(id.text)
-                        ids.append(id.text)
 
 
-        #table = soup2.findAll('table', attrs={'class': 'data'})
+def extract_links(csv_file_location):
+    phish_link_from_file = list()
+    with open(csv_file_location) as f:
+        f.readline() # skip first line
+        for line in f:
+            phishing_url = line.split(',')[1]
+            phish_link_from_file.append(phishing_url)
 
-        if (debug):
-            print len(ids)
-
-        if (debug):
-            for item in ids:
-                print item
-    except IOError:
-        print 'IO error'
-    return ids
-
-    '''  for div in soup2.findAll("div", attrs={'class': 'thread'}):
-            ids.append(div['id'])
-    '''
-
-def getPhishLinks(ua, IDS):
-
-    global debug
-    opener = urllib2.build_opener()
-    opener.addheaders = [('User-agent', ua)]
-
-    PhishLinks = list()
+    return phish_link_from_file
 
 
-    for id in IDS:
-        if (debug):
-            print "Downloading ID page " + id
-
-        try:
-            response = opener.open('https://www.phishtank.com/phish_detail.php?phish_id=' + id )
-        except urllib2.URLError:
-            print("Error: Do you have internets?")
-            #TODO create a return to just wait
-            exit(0)
-        #print("Response:" + response.read())
-
-        soup = BeautifulSoup(response)
-        prettyHTML=soup.prettify()  #prettify the html
-        soup2 = BeautifulSoup(prettyHTML)
-
-        try:
-            for div1 in soup2.findAll('div', attrs={'id': 'widecol'}):
-                for div2 in div1.findAll('div', attrs={'class': 'padded'}):
-                    for div3 in div2.findAll('div'):
-                        if "http" in str(div3):
-                            #if(debug):
-                            print str(div3.text)
-                            PhishLinks.append(div3.text)
-
-        except IOError:
-            print 'IO error'
-
-    # remove duplicates
-    PhishLink_douped = list(set(PhishLinks))
-    return PhishLink_douped
-
-def getFormElements(ua, Links):
+def get_form_elements(phish_inks):
 
     global count
     global debug
-    finalforms = list()
+    final_forms = list()
 
     opener = urllib2.build_opener()
-    opener.addheaders = [('User-agent', ua)]
 
     sid_and_links = list()
 
@@ -123,27 +73,24 @@ def getFormElements(ua, Links):
     else:
         sid_link_exists = False
 
+    for link in phish_inks:
+        opener.addheaders = [('User-agent', ua.random)]
 
-    for link in Links:
-
-        if (sid_link_exists):
-            if any(link in s for s in sid_and_links): # todo OPTIMIZE THIS PLEASE! checking substrings in a list of strings is hella slow
+        if sid_link_exists:
+            if any(link in s for s in sid_and_links):
                 # skip the link
                 print("link already exits in the database")
                 continue
 
         if not link.startswith("https:"):
-            if (debug):
+            if debug:
                 print 'wgetting ' + link
 
-
-
-
             try:
-                response = opener.open(link, timeout=10) #download URL. Timeout after 10 seconds
+                response = opener.open(link, timeout=7) #download URL. Timeout after 10 seconds
                 final_url = response.geturl()
 
-                if (debug):
+                if debug:
                     print "Final URL is: " + final_url
 
             except urllib2.HTTPError as e:
@@ -160,16 +107,14 @@ def getFormElements(ua, Links):
                     print("Error occured." + str(e.code) + " Skipping.")
                     continue
 
-            except urllib2.URLError as f:
+            except urllib2.URLError:
                 print("Entire domain is down.")
                 continue
-
             except socket.timeout:
                 print("URL timeout. Skipping..")
                 continue
             except socket.error:
                 print "socket error. Skipping.."
-                # TODO figure out what this means and try not to skip it? Maybe attempt a re-download?
                 continue
             except urllib2.URLError:
                 print("There was a url error. Possible timeout.")
@@ -206,13 +151,20 @@ def getFormElements(ua, Links):
                     continue
                 except MemoryError as m:
                     continue
+                except ValueError:
+                    soup = BeautifulSoup(unicode(response.read(), errors='ignore'))
+                except httplib.IncompleteRead, e:
+                    soup = BeautifulSoup(unicode(e.partial, errors='ignore'))
+                except:
+                    print "\nBeautifulSoup parsing error ocurred. Skipping link: "
+                    print link + "\n"
 
                 #print "beautiful soup success"
             except TypeError: # protect against chineese characters
-                soup = BeautifulSoup(unicode(response.read(), errors='ignore'))
+                soup = BeautifulSoup(unicode(response.read().decode('unicode-escape'), errors='ignore'))
 
-            prettyHTML=soup.prettify()  # prettify the html
-            soup2 = BeautifulSoup(prettyHTML)
+            pretty_html = soup.prettify()  # prettify the html
+            soup2 = BeautifulSoup(pretty_html)
             #sleep(.1)
 
 
@@ -358,22 +310,111 @@ def getFormElements(ua, Links):
                             #exit(0)
                     '''
                     try:
-                        finalforms.append(link + "," + post_action + formelements_conc)
+                        final_forms.append(link + "," + post_action + formelements_conc)
                     except UnicodeDecodeError: # catch crap like fancy A's
-                        finalforms.append(re.sub(r'[^\x00-\x7f]',r'', link) + "," + post_action + formelements_conc)
+                        final_forms.append(re.sub(r'[^\x00-\x7f]',r'', link) + "," + post_action + formelements_conc)
             # TODO catch escaped javascript pages
 
             except IOError:
                 print 'IO error'
 
+    return final_forms
 
 
-    return finalforms
-
-def checkUniq(elements):
+def get_ids(ua_input):
 
     global debug
-    minimum_histogram_count = 4
+    ids = list()
+    opener = urllib2.build_opener()
+    opener.addheaders = [('User-agent', ua_input)]
+    try:
+        #response = opener.open('https://www.phishtank.com/phish_search.php?page=1&active=y&valid=y&Search=Search')
+        response = opener.open('https://www.phishtank.com/phish_search.php?valid=y&active=y&Search=Search')
+    except urllib2.URLError:
+        print("Error: Do you have internets?")
+        #TODO create a return to just wait
+        exit(0)
+    #print("Response:" + response.read())
+
+    soup = BeautifulSoup(response)
+    prettyHTML=soup.prettify()  #prettify the html
+    soup2 = BeautifulSoup(prettyHTML)
+
+    try:
+        for table in soup2.findAll('table', attrs={'class': 'data'}):
+            for cell in table.findAll('td'):
+                #print cell
+
+                for id in cell.findAll('a'):
+                    if "phish_id" in str(id):
+                        #if debug:
+                        #print str(id.text)
+                        ids.append(id.text)
+
+
+        #table = soup2.findAll('table', attrs={'class': 'data'})
+
+        if (debug):
+            print len(ids)
+
+        if (debug):
+            for item in ids:
+                print item
+    except IOError:
+        print 'IO error'
+    return ids
+
+    '''  for div in soup2.findAll("div", attrs={'class': 'thread'}):
+            ids.append(div['id'])
+    '''
+
+
+def get_phish_links(ua_input, ids):
+
+    global debug
+    opener = urllib2.build_opener()
+    opener.addheaders = [('User-agent', ua_input)]
+
+    PhishLinks = list()
+
+
+    for id in ids:
+        if (debug):
+            print "Downloading ID page " + id
+
+        try:
+            response = opener.open('https://www.phishtank.com/phish_detail.php?phish_id=' + id )
+        except urllib2.URLError:
+            print("Error: Do you have internets?")
+            #TODO create a return to just wait
+            exit(0)
+        #print("Response:" + response.read())
+
+        soup = BeautifulSoup(response)
+        prettyHTML=soup.prettify()  #prettify the html
+        soup2 = BeautifulSoup(prettyHTML)
+
+        try:
+            for div1 in soup2.findAll('div', attrs={'id': 'widecol'}):
+                for div2 in div1.findAll('div', attrs={'class': 'padded'}):
+                    for div3 in div2.findAll('div'):
+                        if "http" in str(div3):
+                            #if(debug):
+                            print str(div3.text)
+                            PhishLinks.append(div3.text)
+
+        except IOError:
+            print 'IO error'
+
+    # remove duplicates
+    PhishLink_douped = list(set(PhishLinks))
+    return PhishLink_douped
+
+
+def check_uniq(elements):
+
+    global debug
+    minimum_histogram_count = 5
     final_new_elements = list()
 
     if not os.path.isfile("current_sid.txt"):
@@ -571,7 +612,8 @@ def checkUniq(elements):
 
     return final_new_elements
 
-def generateRules(database_file):
+
+def generate_rules(database_file):
 
     finalrules = list()
     element_count = list()
@@ -638,97 +680,69 @@ def generateRules(database_file):
 
     return(finalrules)
 
-def getApiFile(ua):
 
-    global debug
-    ids = list()
-    opener = urllib2.build_opener()
-    opener.addheaders = [('User-agent', ua)]
-
-    #url = 'http://data.phishtank.com/data/' + APIkey + '/online-valid.csv'
-    url = 'http://data.phishtank.com/data/online-valid.csv'
-    file_name = url.split('/')[-1]
-
+def check_if_int(int_from_user):
     try:
-        downloader = opener.open(url)
-        print "Downloading file.."
-        with open(file_name, "wb") as code:
-            code.write(downloader.read())
-
-        print "Download complete"
-
-    except urllib2.URLError:
-        print("Error: Do you have internets?")
-        #TODO create a return to just wait
-        exit(0)
-    finally:
-        return file_name
-
-def extractlinks(csv_file_location):
-    PhishLinkFromFile = list()
-    with open(csv_file_location) as f:
-        f.readline() # skip first line
-        for line in f:
-            phishing_url = line.split(',')[1]
-            PhishLinkFromFile.append(phishing_url)
-
-    return PhishLinkFromFile
+        input_int = int(int_from_user)
+        return True
+    except ValueError:
+        print("That's not an int! Exiting")
+        return False
 
 
-#main
-
-debug = False
-
+# main
+debug = True
 ua = UserAgent()
 
-
-
-input = raw_input('Generate rules via API download(1) or live(2)(live mode is in testing)? ')
-if len(input) > 1:
+program_start_input = raw_input('Generate rules via API download(1) or live(2)(live mode is in testing)? \n')
+if len(program_start_input) > 1:
     print "Too many inputs."
     exit(0)
 
-try:
-   input_int = int(input)
-except ValueError:
-   print("That's not an int! Exiting")
+if not check_if_int(program_start_input):
+    exit()
 
-random_ua = ua.random
-if input_int is 1:
+
+if int(program_start_input) is 1:
     start_time = time.time()
 
-    #api stuff
-    '''
-    API_key = raw_input('Enter your API key: ')
-    if len(API_key) is not 64:
-        print "Improper API key entered"
+    input_api_question = raw_input('Do you have an API key? 1 for Yes, 2 for No \n')
+    if len(input_api_question) > 1:
+        print "Too many inputs."
         exit(0)
+
+    if not check_if_int(input_api_question):
+        exit()
+    if input_api_question == 1:
+        API_key = raw_input('Enter your API key: ')
+        if len(API_key) is not 64:
+            print "Improper API key entered"
+            exit(0)
     else:
-    '''
-    random_ua = ua.random
-    csv_file = getApiFile(random_ua)
-    #csv_file = getApiFile(random_ua, API_key) #api key
+        API_key = False
+
+    csv_file = get_api_file(API_key)
     #csv_file = "online-valid.csv"
-    links_from_api = extractlinks(csv_file)
+    links_from_api = extract_links(csv_file)
     #print all urls in the csv file (about 30k)
     #print "URLs from csv are: "
     #for url in links_from_api:
     #print url
 
-    Elements2 = getFormElements(random_ua, links_from_api)
+    Elements2 = get_form_elements(links_from_api)
 
     print "Element2 are: "
     for ele in Elements2:
         print ele
 
-    UniqElements2 = checkUniq(Elements2)
+    UniqElements2 = check_uniq(Elements2)
 
     print "Uniq elements greater than 2:"
     for uniq_element in UniqElements2:
         print uniq_element
 
     if len(UniqElements2) != 0:
-        SF_final_rules = generateRules("elementdatabase_histogram.txt")
+        SF_final_rules = generate_rules("elementdatabase_histogram.txt")
 
 
         print "\nFinal rules are: \n"
@@ -742,7 +756,7 @@ if input_int is 1:
     end_time = time.time()
     print("Elapsed time was %g seconds" % (end_time - start_time))
 
-elif input_int is 2:
+elif program_start_input is 2:
 
     while True:
         count = 0
@@ -757,10 +771,10 @@ elif input_int is 2:
         print ("Running at time %s" % now)
 
         # Get the IDs for the valid phishs
-        IDS = getIds(random_ua)
+        IDS = get_ids(random_ua)
 
         # Get the phishing links from within the ID pages
-        Links = getPhishLinks(random_ua, IDS)
+        Links = get_phish_links(random_ua, IDS)
 
         if (debug):
             print len(Links)
@@ -770,13 +784,13 @@ elif input_int is 2:
             for link in Links:
                 print link
         '''
-        Elements = getFormElements(random_ua, Links)
+        Elements = get_form_elements(random_ua, Links)
 
         for element in Elements:
             print element
 
         #check uniq
-        UniqElements = checkUniq(Elements)
+        UniqElements = check_uniq(Elements)
 
         print "Uniq elements are:"
         for uniq_element in UniqElements:
@@ -788,7 +802,7 @@ elif input_int is 2:
         sf_file = open('SF_Rules.txt', 'a')
 
         if len(UniqElements) != 0:
-            SF_final_rules = generateRules(UniqElements)
+            SF_final_rules = generate_rules(UniqElements)
 
 
             print "\nFinal rules are: \n"
