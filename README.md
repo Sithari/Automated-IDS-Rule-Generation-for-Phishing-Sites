@@ -1,4 +1,4 @@
-# automated-IDS-rule-Generation-for-Phishing-Sites
+# Automated-IDS-Rule-Generation-for-Phishing-Sites
 Given a set of phishing links, this script will generate sourcefire rules to detect successfully phished victims on your network.
 Currently the script has two options:
 
